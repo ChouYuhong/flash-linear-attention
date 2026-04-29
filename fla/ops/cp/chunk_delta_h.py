@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     configs=[
         triton.Config({}, num_warps=num_warps, num_stages=num_stages)
         for num_warps in [2, 4]
-        for num_stages in [2, 3, 4]
+        for num_stages in [1]
     ],
     key=['H', 'HV', 'K', 'V', 'BT', 'USE_EXP2'],
     use_cuda_graph=USE_CUDA_GRAPH,
@@ -333,7 +333,7 @@ def pre_process_fwd_kernel_merged(
     configs=[
         triton.Config({'BV': BV}, num_warps=num_warps, num_stages=num_stages)
         for num_warps in [2, 4]
-        for num_stages in [2, 3, 4]
+        for num_stages in [1]
         for BV in [32, 64]
     ],
     key=['HV', 'K', 'V', 'BT', 'USE_EXP2'],
