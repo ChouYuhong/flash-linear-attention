@@ -170,3 +170,45 @@ def build_cp_context(
         FLACPContext with computed cu_seqlens and rank information.
     """
     return get_cp_cu_seqlens(cu_seqlens, cu_seqlens_cpu=cu_seqlens_cpu, group=group, conv1d_kernel_size=conv1d_kernel_size)
+
+def build_cp_context_fixed_len(
+    batch_size: int,
+    global_seq_len: int,
+    group: dist.ProcessGroup,
+    device: torch.device
+) -> FLACPContext:
+    """
+    为固定序列长度且无 Conv 的模型构建 CP Context。
+    Args:
+        batch_size: 批次大小
+        global_seq_len: 全局序列长度 (切分前的总长度)
+        group: CP 通信组
+        device: 当前 GPU device
+    """
+    world_size = dist.get_world_size(group=group)
+    rank = dist.get_rank(group=group)
+    # 确保序列长度可以被 CP world size 整除
+    assert global_seq_len % world_size == 0, \
+        f"Global sequence length ({global_seq_len}) must be divisible by CP world size ({world_size})"
+    # 当前 rank 负责的局部序列长度
+    local_seq_len = global_seq_len // world_size
+    # 构造均匀分布的 cu_seqlens (int32 类型，Flash Attention 等算子通常需要)
+    # 例如: batch_size=2, local_seq_len=1024 -> [0, 1024, 2048]
+    local_cu_seqlens_cpu = torch.arange(
+        0, 
+        (batch_size * local_seq_len) + 1, 
+        local_seq_len, 
+        dtype=torch.int32
+    )
+    local_cu_seqlens_gpu = local_cu_seqlens_cpu.to(device=device, non_blocking=True)
+    return FLACPContext(
+        group=group,
+        cu_seqlens=local_cu_seqlens_gpu,
+        cu_seqlens_cpu=local_cu_seqlens_cpu,
+        is_first_rank=(rank == 0),
+        is_last_rank=(rank == world_size - 1),
+        pre_num_ranks=rank,
+        post_num_ranks=(world_size - 1 - rank),
+        conv1d_kernel_size=None,
+        pre_num_conv_tokens=0
+    )
